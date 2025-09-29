@@ -1,0 +1,18 @@
+service: cost-alert-lambda
+
+provider:
+  name: aws
+  runtime: nodejs18.x
+  region: ap-south-1
+  timeout: 10
+  # Providing Slack Environment
+  environment:
+    WEBHOOK_URL: "YOUR_WEBHOOK_URL_HERE"
+
+functions:
+  alertHandler:
+    handler: handler.alert
+    description: Receives alerts from SNS and sends them to a webhook.
+    # Tell Lambda to get trigger, when message is published to sns topic
+    events:
+      - sns: "your_sns_topic_arn"
