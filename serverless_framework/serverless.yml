@@ -1,5 +1,9 @@
 service: cost-alert-lambda
 
+# Enable es-build to minimise the size of packages
+build:
+  esbuild: true
+
 provider:
   name: aws
   runtime: nodejs18.x
@@ -16,3 +20,8 @@ functions:
     # Tell Lambda to get trigger, when message is published to sns topic
     events:
       - sns: "your_sns_topic_arn"
+    iamRoleStatements:
+      - Effect: Allow
+        Action: 
+          - ses:SendEmail
+        Resource: "*"   # Send the email to anyone
