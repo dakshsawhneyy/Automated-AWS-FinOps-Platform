@@ -38,3 +38,16 @@ functions:
           - ec2:DescribeVolumes
           - ec2:CreateTags
         Resource: "*"
+  # Optimizer
+  Optimizer:
+    handler: handler.optimizer
+    description: Runs weekly to get EC2 right-sizing recommendations from AWS Compute Optimizer.
+    events:
+      - schedule: rate(1 day)
+    iamRoleStatements:
+      - Effect: "Allow"
+        Action:
+          - "compute-optimizer:GetEC2InstanceRecommendations"
+          - "EC2:DescribeInstances"
+          - ses:SendEmail
+        Resource: "*"
