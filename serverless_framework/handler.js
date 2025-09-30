@@ -1,9 +1,13 @@
 import axios from 'axios'
 import { SESClient, SendEmailCommand } from "@aws-sdk/client-ses";
-
+import { EC2Client, DescribeVolumesCommand } from "@aws-sdk/client-ec2";
+import { ComputeOptimizerClient, GetEC2InstanceRecommendationsCommand } from "@aws-sdk/client-compute-optimizer";     
+const { STSClient, GetCallerIdentityCommand } = require("@aws-sdk/client-sts"); // Import the STS client
 
 const sesClient = new SESClient();
-
+const ec2Client = new EC2Client({region: 'ap-south-1'});
+const computeClient = new ComputeOptimizerClient({region: 'ap-south-1'})
+const stsClient = new STSClient()
 
 module.exports.alert = async(event) => {
     console.log('SNS Event Recieved ', event);
