@@ -85,3 +85,67 @@ module.exports.janitor = async(event) => {
         return { statusCode: 500, body: 'Error in EBS Janitor' }
     }
 } 
+
+module.exports.optimizer = async(event) => {
+    try {
+        // // Get the current AWS Account ID
+        const identity = await stsClient.send(new GetCallerIdentityCommand());
+        const accountId = identity.Account;
+
+        // // Ask Compute Optimizer for recommendations for our account
+        const command = new GetEC2InstanceRecommendationsCommand({ accountIds: [accountId] })
+        const response = await computeClient.send(command);
+
+        const recommendations = []
+
+        if(response.instanceRecommendations && response.instanceRecommendations.length > 0){
+            response.instanceRecommendations.forEach((record) => {
+                // 'Overprovisioned' means the instance is too big for its workload
+                if(record.finding === 'OVER_PROVISIONED'){
+                    recommendations.push({
+                        Instance: record.instanceArn,
+                        currentType: record.currentInstanceType,
+                        recommendedType: record.recommendationOptions[0].instanceType,
+                        estimatedSavings: `$${record.recommendationOptions[0].estimatedMonthlySavings.value}`
+                    })
+                }
+            })
+        }
+
+        // Send this as a slack message
+        let slackMessage
+        if(recommendations.length > 0){
+            slackMessage = {
+                text: `AWS Optimizer found ${recommendations.length} EC2 instance(s) to right-size:\n\`\`\`${JSON.stringify(recommendations, null, 2)}\`\`\``
+            }
+        }else{
+            slackMessage = {
+                text: `AWS Optimizer check complete. No overprovisioned EC2 instances found.`
+            }
+        }
+
+        await axios.post(webhookURL, slackMessage);
+        console.log('Successfully sent optimizer report to Slack.')
+
+        // Sending optimizer report to email
+        const emailParams = {
+            Source: 'dakshsawhneyy@gmail.com',
+            Destination: {
+                ToAddresses: ['dakshsawhney2@gmail.com'],
+            },
+            Message: {
+                Subject: { Data: `AWS Optimizer found ${recommendations.length} EC2 instance(s) to right-size` },
+                Body: {
+                    Text: { Data: `${JSON.stringify(recommendations, null, 2)}` },
+                },
+            }
+        }
+        await sesClient.send(new SendEmailCommand(emailParams));
+        console.log('Successfully sent email notification.');
+
+        return { statusCode: 200, body: 'Optimizer check complete.' }
+    } catch (error) {
+        console.log('Error Occurred: ', error.message)
+        return { statusCode: 500, body: 'Optimizer check complete.' }
+    }
+}
