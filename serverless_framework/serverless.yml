@@ -25,3 +25,16 @@ functions:
         Action: 
           - ses:SendEmail
         Resource: "*"   # Send the email to anyone
+  # EBS Janitor
+  EBSJanitor:
+    handler: handler.janitor
+    description: Runs on a schedule to find and tag unused EBS volumes.
+    # This will get triggered as a cronjon automatically per day
+    events:
+      - schedule: rate(1 day)
+    iamRoleStatements:    # Provide permissions, it can list all EBS volumes and put a 'delete-me' tag on it
+      - Effect: Allow
+        Action: 
+          - ec2:DescribeVolumes
+          - ec2:CreateTags
+        Resource: "*"
