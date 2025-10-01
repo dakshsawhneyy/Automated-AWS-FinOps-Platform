@@ -67,23 +67,55 @@ module.exports.janitor = async(event) => {
                 console.log(`Volume ID: ${volume.VolumeId}, State: ${volume.State}`);
 
                 if(volume.State === 'available'){
-                    STALE_EBS_VOLUME_COUNT += 1;
-                    STALE_EBS_VOLUMES.push({ID: volume.VolumeId, Type: volume.VolumeType, Size: volume.Size, Region: volume.AvailabilityZone})
+                    const alreadyTagged = volume.Tags && volume.Tags.find((tag) => tag.Key === 'Status' && tag.Value === 'Ready-For-Deletion')
+
+                    if(!alreadyTagged){
+                        STALE_EBS_VOLUMES.push({ID: volume.VolumeId, Type: volume.VolumeType, Size: volume.Size, Region: volume.AvailabilityZone})
+                    }
                 }
+
             })
-        }else{
-            console.log("No EBS volumes found.");
         }
+
+        // If there are unused volumes, tag them to delete afterwards and also 7 days time to delete them automatically
+        if(STALE_EBS_VOLUMES.length > 0){
+            console.log(`Found ${STALE_EBS_VOLUMES.length} unused EBS Volumes`)
+
+            // Fetch the list of volume IDs to tag
+            const volumeIdsToTag = STALE_EBS_VOLUMES.map((vol) => vol.ID);
+
+            // Calculate the deletion date for 7 days in the future
+            const deleteDate = new Date();
+            deleteDate.setDate(deleteDate.getDate() + 7);
+            const deleteDateString = deleteDate.toISOString().split('T')[0]; // Format as YYYY-MM-DD
+
+            // Create the command to tag EBS Volumes
+            const tagCommand = new CreateTagsCommand({
+                Resources: volumeIdsToTag,
+                Tags: [
+                    { Key: "Status", Value: "Ready-For-Deletion" },
+                    { Key: "DeletionDate", Value: deleteDateString }
+                ]
+            })
+
+            // Send the tags to ec2 client, to apply on EBS Volumes
+            await ec2Client.send(tagCommand)
+            console.log(`Successfully tagged ${volumeIdsToTag.length} volume(s) for deletion on ${deleteDateString}.`);
+        }
+
+        const STALE_EBS_VOLUME_LENGTH = STALE_EBS_VOLUMES.length
 
         // If there are more than one unused snapshots, send notification to user on slack
         const slackMessage = {
-            text: `🚨 🧹 EBS Janitor found ${STALE_EBS_VOLUME_COUNT} unused EBS volume(s) to be cleaned up:\n\`\`\`${JSON.stringify(STALE_EBS_VOLUMES, null, 2)} 🚨\`\`\``
+            text: `🚨 🧹 EBS Janitor found and tagged ${volumesToTag.length} new unused EBS volume(s) for deletion in 7 days:\n\`\`\`${JSON.stringify(STALE_EBS_VOLUMES, null, 2)} 🚨\`\`\``
         }
 
-        await axios.post(webhookURL, slackMessage);
-        console.log('Successfully sent webhook notification.')
+        if(STALE_EBS_VOLUMES.length > 0){
+            await axios.post(webhookURL, slackMessage);
+            console.log('Successfully sent webhook notification.')
+        }
 
-        return { statusCode: 200, body: 'Janitor Listed all EBS Volumes' }
+        return { statusCode: 200, body: 'Janitor Listed all EBS Volumes and tagged them for deletion in 7 days' }
     } catch (error) {
         console.log('Error Occurred', error.message)
         return { statusCode: 500, body: 'Error in EBS Janitor' }
