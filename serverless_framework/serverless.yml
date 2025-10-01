@@ -43,11 +43,24 @@ functions:
     handler: handler.optimizer
     description: Runs weekly to get EC2 right-sizing recommendations from AWS Compute Optimizer.
     events:
-      - schedule: rate(1 day)
+      - schedule: rate(1 week)
     iamRoleStatements:
       - Effect: "Allow"
         Action:
           - "compute-optimizer:GetEC2InstanceRecommendations"
           - "EC2:DescribeInstances"
           - ses:SendEmail
+        Resource: "*"
+  # Executor
+  Executor:
+    handler: handler.executor
+    description: Runs daily to check if EBS Volume date has expired, so it can be deleted automatically
+    events:
+      - schedule: rate(1 day)
+    iamRoleStatements:
+      - Effect: "Allow"
+        Action:
+          - ses:SendEmail
+          - ec2:DescribeVolumes
+          - ec2:DeleteVolume
         Resource: "*"
