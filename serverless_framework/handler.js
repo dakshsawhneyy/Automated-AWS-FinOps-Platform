@@ -185,3 +185,80 @@ module.exports.optimizer = async(event) => {
         return { statusCode: 500, body: 'Optimizer check complete.' }
     }
 }
+
+module.exports.executor = async(event) => {
+    try {
+        console.log('Executor started. Looking for stale volumes to delete...')
+        
+        const today = new Date().toISOString().split('T')[0];
+        console.log("Today's Date:", today);
+
+        // Find all volumes, that are marked for deletion
+        const describeCommand = new DescribeVolumesCommand({ 
+            Filters: [
+                { Name: 'tag:Status', Values: ['Ready-For-Deletion'] }
+            ]
+        });
+
+        // Fetch all volumes with these tags
+        const response = await ec2Client.send(describeCommand);
+
+        const volumesToDelete = [];
+
+        if(response.Volumes && response.Volumes.length > 0){
+            response.Volumes.forEach((vol) => {
+                const deleteDateTag = vol.Tags.find((tag) => tag.Key === 'DeletionDate')
+                // Check if DeletionDate is more than current date
+                if(deleteDateTag && deleteDateTag.Value <= today){
+                    volumesToDelete.push({ ID: vol.VolumeId, Size: `${vol.Size} GiB`, Region: vol.AvailabilityZone })
+                }
+            })
+        }
+
+        // If the length of volumesToDelete > 0, delete them
+        if(volumesToDelete.length > 0){
+            console.log(`Found ${volumesToDelete.length} volume(s) to delete.`);
+
+            // Loop over each volume and delete each volume
+            for(const volumeId of volumesToDelete){
+                const deleteCommand = new DeleteVolumeCommand({ VolumeId: volumeId.ID })
+                await ec2Client.send(deleteCommand)
+                console.log(`Successfully deleted volume: ${volumeId}`);
+            }
+            
+            // Send notification to Slack
+            slackMessage  = {
+                text: `EBS Executor successfully deleted ${volumesToDelete.length} orphaned EBS volume(s).\n\n\`\`\`The following orphaned EBS volumes have been automatically deleted:\n\n${JSON.stringify(volumesToDelete, null, 2)}\`\`\``
+            }
+            
+            // Send message to slack
+            await axios.post(webhookURL, slackMessage );
+
+            // E-Mail params
+            const emailParams = {
+                Source: 'dakshsawhney2@gmail.com',
+                Destination: {
+                    ToAddresses: ['dakshsawhneyy@gmail.com'],
+                },
+                Message: {
+                    Subject: { Data: `EBS Executor successfully deleted ${volumesToDelete.length} orphaned EBS volume(s).` },
+                    Body: {
+                        Text: { Data: `The following orphaned EBS volumes have been automatically deleted:\n\n${JSON.stringify(volumesToDelete, null, 2)}` },
+                    },
+                }
+            }
+
+            // Send through SES Client
+            await sesClient.send(new SendEmailCommand(emailParams));
+            console.log('Successfully sent email notification.');
+
+        }else{
+            console.log("No EBS volumes scheduled for deletion today.")
+        }
+
+        return { statusCode: 200, body: 'Executor check complete' }
+    } catch (error) {
+        console.log('Error Occurred: ', error.message);
+        return { statusCode: 500, body: `Executor Failed ${error.message}` }
+    }
+}
